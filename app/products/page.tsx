@@ -10,7 +10,8 @@ type Product = {
   name: string;
   sku: string;
   category: string | null;
-  unitPrice: string;
+  source: "PURCHASED" | "MANUFACTURED";
+  vendorName: string | null;
   quantity: number;
   minimumStock: number;
 };
@@ -75,7 +76,7 @@ export default function ProductsPage() {
 
                 <input
                   type="text"
-                  placeholder="Search products..."
+                  placeholder="Search by name, SKU or vendor..."
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   className="rounded-lg border border-slate-300 px-4 py-2 text-sm outline-none focus:border-slate-500"
@@ -90,7 +91,7 @@ export default function ProductsPage() {
                     <th className="px-6 py-4 font-medium">Product</th>
                     <th className="px-6 py-4 font-medium">SKU</th>
                     <th className="px-6 py-4 font-medium">Category</th>
-                    <th className="px-6 py-4 font-medium">Price</th>
+                    <th className="px-6 py-4 font-medium">Vendor</th>
                     <th className="px-6 py-4 font-medium">Stock</th>
                     <th className="px-6 py-4 font-medium">Status</th>
                     <th className="px-6 py-4 font-medium">Actions</th>
@@ -112,7 +113,9 @@ export default function ProductsPage() {
                     </tr>
                   ) : (
                     products.map((product) => {
+                      const isNegative = product.quantity < 0;
                       const isLow = product.quantity <= product.minimumStock;
+
                       return (
                         <tr key={product.id} className="border-t border-slate-100">
                           <td className="px-6 py-4">
@@ -121,19 +124,27 @@ export default function ProductsPage() {
                           </td>
                           <td className="px-6 py-4 text-slate-600">{product.sku}</td>
                           <td className="px-6 py-4 text-slate-600">{product.category || "—"}</td>
-                          <td className="px-6 py-4 text-slate-600">
-                            ₹{Number(product.unitPrice).toFixed(2)}
+                          <td className="px-6 py-4">
+                            {product.source === "MANUFACTURED" ? (
+                              <span className="rounded-full bg-blue-100 px-2.5 py-1 text-xs font-medium text-blue-700">
+                                In-house
+                              </span>
+                            ) : (
+                              <span className="text-slate-600">{product.vendorName}</span>
+                            )}
                           </td>
                           <td className="px-6 py-4 text-slate-600">{product.quantity}</td>
                           <td className="px-6 py-4">
                             <span
                               className={`rounded-full px-3 py-1 text-xs font-medium ${
-                                isLow
+                                isNegative
+                                  ? "bg-orange-100 text-orange-800"
+                                  : isLow
                                   ? "bg-red-100 text-red-700"
                                   : "bg-green-100 text-green-700"
                               }`}
                             >
-                              {isLow ? "Low Stock" : "In Stock"}
+                              {isNegative ? "Backorder" : isLow ? "Low Stock" : "In Stock"}
                             </span>
                           </td>
                           <td className="px-6 py-4">

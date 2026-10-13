@@ -20,10 +20,12 @@ export async function POST(request: Request) {
       );
     }
 
-    const user = await prisma.user.findUnique({
-      where: {
-        email,
-      },
+    // Email is now unique per-organization, not globally, so we look up
+    // by email across all orgs. In the MVP a user belongs to exactly one
+    // organization (SRS Rule 1), so findFirst is safe here.
+    const user = await prisma.user.findFirst({
+      where: { email },
+      include: { organization: true },
     });
 
     if (!user) {
@@ -36,10 +38,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const passwordValid = await bcrypt.compare(
-      password,
-      user.passwordHash
-    );
+    const passwordValid = await bcrypt.compare(password, user.passwordHash);
 
     if (!passwordValid) {
       return NextResponse.json(
@@ -51,8 +50,29 @@ export async function POST(request: Request) {
       );
     }
 
+    if (user.status !== "ACTIVE") {
+      return NextResponse.json(
+        {
+          success: false,
+          message: "This account has been deactivated. Contact your administrator.",
+        },
+        { status: 403 }
+      );
+    }
+
+    if (user.organization.status !== "ACTIVE") {
+      return NextResponse.json(
+        {
+          success: false,
+          message: "This organization account is inactive.",
+        },
+        { status: 403 }
+      );
+    }
+
     const token = await createSession({
       userId: user.id,
+      organizationId: user.organizationId,
       role: user.role,
       name: user.name,
       email: user.email,
@@ -66,6 +86,10 @@ export async function POST(request: Request) {
         name: user.name,
         email: user.email,
         role: user.role,
+      },
+      organization: {
+        id: user.organization.id,
+        name: user.organization.name,
       },
     });
 

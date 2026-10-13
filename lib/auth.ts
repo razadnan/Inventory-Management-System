@@ -11,6 +11,7 @@ const secretKey = new TextEncoder().encode(secret);
 
 export type SessionPayload = {
   userId: string;
+  organizationId: string;
   role: "ADMIN" | "USER";
   name: string;
   email: string;

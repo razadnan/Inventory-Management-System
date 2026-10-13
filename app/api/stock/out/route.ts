@@ -30,47 +30,54 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const result = await prisma.$transaction(async (tx) => {
-      const product = await tx.product.findUnique({ where: { id: productId } });
+    const result = await prisma.$transaction(
+      async (tx) => {
+        const product = await tx.product.findFirst({
+          where: { id: productId, organizationId: user.organizationId },
+        });
 
-      if (!product) {
-        throw new Error("PRODUCT_NOT_FOUND");
-      }
+        if (!product) {
+          throw new Error("PRODUCT_NOT_FOUND");
+        }
 
-      const previousQuantity = product.quantity;
+        const previousQuantity = product.quantity;
 
-      // FR-04: reject if Requested Quantity > Available Quantity
-      if (qty > previousQuantity) {
-        throw new Error(
-          `INSUFFICIENT_STOCK:${previousQuantity}`
-        );
-      }
+        // Negative stock is intentionally allowed here — mirrors how
+        // Tally Prime handles dispatch-before-entry in manufacturing/
+        // trading businesses. Stock can go negative and is expected
+        // to self-correct once a backlogged Stock IN entry is recorded.
+        const newQuantity = previousQuantity - qty;
 
-      const newQuantity = previousQuantity - qty;
+        const updatedProduct = await tx.product.update({
+          where: { id: productId },
+          data: { quantity: newQuantity },
+        });
 
-      const updatedProduct = await tx.product.update({
-        where: { id: productId },
-        data: { quantity: newQuantity },
-      });
+        const movement = await tx.stockMovement.create({
+          data: {
+            organizationId: user.organizationId,
+            productId,
+            movementType: "STOCK_OUT",
+            quantity: qty,
+            previousQuantity,
+            newQuantity,
+            reference: reference || null,
+            userId: user.userId,
+          },
+        });
 
-      const movement = await tx.stockMovement.create({
-        data: {
-          productId,
-          movementType: "STOCK_OUT",
-          quantity: qty,
-          previousQuantity,
-          newQuantity,
-          reference: reference || null,
-          userId: user.userId,
-        },
-      });
+        return { updatedProduct, movement };
+      },
+      { maxWait: 15000, timeout: 15000 }
+    );
 
-      return { updatedProduct, movement };
-    });
+    const wentNegative = result.updatedProduct.quantity < 0;
 
     return NextResponse.json({
       success: true,
-      message: "Stock removed successfully",
+      message: wentNegative
+        ? `Stock removed. Note: ${result.updatedProduct.name} is now at ${result.updatedProduct.quantity} (negative stock).`
+        : "Stock removed successfully",
       product: result.updatedProduct,
       movement: result.movement,
     });
@@ -79,17 +86,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { success: false, message: "Product not found" },
         { status: 404 }
-      );
-    }
-
-    if (error instanceof Error && error.message.startsWith("INSUFFICIENT_STOCK")) {
-      const available = error.message.split(":")[1];
-      return NextResponse.json(
-        {
-          success: false,
-          message: `Stock OUT cannot be completed. Only ${available} units are available.`,
-        },
-        { status: 400 }
       );
     }
 

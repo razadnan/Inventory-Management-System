@@ -30,35 +30,41 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const result = await prisma.$transaction(async (tx) => {
-      const product = await tx.product.findUnique({ where: { id: productId } });
+    const result = await prisma.$transaction(
+      async (tx) => {
+        const product = await tx.product.findFirst({
+          where: { id: productId, organizationId: user.organizationId },
+        });
 
-      if (!product) {
-        throw new Error("PRODUCT_NOT_FOUND");
-      }
+        if (!product) {
+          throw new Error("PRODUCT_NOT_FOUND");
+        }
 
-      const previousQuantity = product.quantity;
-      const newQuantity = previousQuantity + qty;
+        const previousQuantity = product.quantity;
+        const newQuantity = previousQuantity + qty;
 
-      const updatedProduct = await tx.product.update({
-        where: { id: productId },
-        data: { quantity: newQuantity },
-      });
+        const updatedProduct = await tx.product.update({
+          where: { id: productId },
+          data: { quantity: newQuantity },
+        });
 
-      const movement = await tx.stockMovement.create({
-        data: {
-          productId,
-          movementType: "STOCK_IN",
-          quantity: qty,
-          previousQuantity,
-          newQuantity,
-          reference: reference || null,
-          userId: user.userId,
-        },
-      });
+        const movement = await tx.stockMovement.create({
+          data: {
+            organizationId: user.organizationId,
+            productId,
+            movementType: "STOCK_IN",
+            quantity: qty,
+            previousQuantity,
+            newQuantity,
+            reference: reference || null,
+            userId: user.userId,
+          },
+        });
 
-      return { updatedProduct, movement };
-    });
+        return { updatedProduct, movement };
+      },
+      { maxWait: 15000, timeout: 15000 }
+    );
 
     return NextResponse.json({
       success: true,

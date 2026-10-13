@@ -7,11 +7,12 @@ import Sidebar from "@/components/sidebar";
 type Challan = {
   id: string;
   challanNumber: string;
-  receiverName: string;
-  destination: string;
+  destination: string | null;
   createdAt: string;
   items: { quantity: number }[];
+  customer: { name: string };
   creator: { name: string };
+  totalAmount: number;
 };
 
 export default function ChallansPage() {
@@ -51,9 +52,9 @@ export default function ChallansPage() {
               <thead className="bg-slate-50 text-slate-500">
                 <tr>
                   <th className="px-6 py-4 font-medium">Challan #</th>
-                  <th className="px-6 py-4 font-medium">Receiver</th>
-                  <th className="px-6 py-4 font-medium">Destination</th>
+                  <th className="px-6 py-4 font-medium">Customer</th>
                   <th className="px-6 py-4 font-medium">Items</th>
+                  <th className="px-6 py-4 font-medium">Total</th>
                   <th className="px-6 py-4 font-medium">Issued By</th>
                   <th className="px-6 py-4 font-medium">Date</th>
                   <th className="px-6 py-4 font-medium">Actions</th>
@@ -76,10 +77,12 @@ export default function ChallansPage() {
                   challans.map((c) => (
                     <tr key={c.id} className="border-t border-slate-100">
                       <td className="px-6 py-4 font-medium text-slate-900">{c.challanNumber}</td>
-                      <td className="px-6 py-4 text-slate-600">{c.receiverName}</td>
-                      <td className="px-6 py-4 text-slate-600">{c.destination}</td>
+                      <td className="px-6 py-4 text-slate-600">{c.customer.name}</td>
                       <td className="px-6 py-4 text-slate-600">
                         {c.items.reduce((sum, i) => sum + i.quantity, 0)}
+                      </td>
+                      <td className="px-6 py-4 font-medium text-slate-900">
+                        ₹{c.totalAmount.toFixed(2)}
                       </td>
                       <td className="px-6 py-4 text-slate-600">{c.creator.name}</td>
                       <td className="px-6 py-4 text-slate-500">

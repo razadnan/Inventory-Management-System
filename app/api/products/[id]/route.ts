@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { getCurrentUser } from "@/lib/auth";
 import { NextRequest, NextResponse } from "next/server";
 
 export async function GET(
@@ -6,9 +7,19 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const user = await getCurrentUser();
+    if (!user) {
+      return NextResponse.json(
+        { success: false, message: "Unauthorized" },
+        { status: 401 }
+      );
+    }
+
     const { id } = await params;
 
-    const product = await prisma.product.findUnique({ where: { id } });
+    const product = await prisma.product.findFirst({
+      where: { id, organizationId: user.organizationId },
+    });
 
     if (!product) {
       return NextResponse.json(
@@ -32,26 +43,45 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const user = await getCurrentUser();
+    if (!user) {
+      return NextResponse.json(
+        { success: false, message: "Unauthorized" },
+        { status: 401 }
+      );
+    }
+
     const { id } = await params;
     const body = await request.json();
 
-    const { name, sku, category, unitPrice, minimumStock } = body;
+    const { name, sku, category, source, vendorName, minimumStock } = body;
 
-    if (!name || !sku || !unitPrice) {
+    if (!name || !sku || !category) {
       return NextResponse.json(
-        { success: false, message: "Name, SKU and unit price are required" },
+        { success: false, message: "Name, SKU and category are required" },
         { status: 400 }
       );
     }
 
-    if (Number(unitPrice) < 0 || Number(minimumStock) < 0) {
+    const normalizedSource = source === "MANUFACTURED" ? "MANUFACTURED" : "PURCHASED";
+
+    if (normalizedSource === "PURCHASED" && !vendorName?.trim()) {
       return NextResponse.json(
-        { success: false, message: "Price and minimum stock must be positive" },
+        { success: false, message: "Vendor name is required for purchased products" },
         { status: 400 }
       );
     }
 
-    const existing = await prisma.product.findUnique({ where: { id } });
+    if (Number(minimumStock) < 0) {
+      return NextResponse.json(
+        { success: false, message: "Minimum stock must be positive" },
+        { status: 400 }
+      );
+    }
+
+    const existing = await prisma.product.findFirst({
+      where: { id, organizationId: user.organizationId },
+    });
     if (!existing) {
       return NextResponse.json(
         { success: false, message: "Product not found" },
@@ -59,8 +89,15 @@ export async function PUT(
       );
     }
 
+    const normalizedSku = sku.toUpperCase();
+
     const skuOwner = await prisma.product.findUnique({
-      where: { sku: sku.toUpperCase() },
+      where: {
+        organizationId_sku: {
+          organizationId: user.organizationId,
+          sku: normalizedSku,
+        },
+      },
     });
     if (skuOwner && skuOwner.id !== id) {
       return NextResponse.json(
@@ -73,9 +110,10 @@ export async function PUT(
       where: { id },
       data: {
         name,
-        sku: sku.toUpperCase(),
+        sku: normalizedSku,
         category,
-        unitPrice: Number(unitPrice),
+        source: normalizedSource,
+        vendorName: normalizedSource === "PURCHASED" ? vendorName.trim() : null,
         minimumStock: Number(minimumStock || 0),
       },
     });
@@ -95,9 +133,19 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const user = await getCurrentUser();
+    if (!user) {
+      return NextResponse.json(
+        { success: false, message: "Unauthorized" },
+        { status: 401 }
+      );
+    }
+
     const { id } = await params;
 
-    const existing = await prisma.product.findUnique({ where: { id } });
+    const existing = await prisma.product.findFirst({
+      where: { id, organizationId: user.organizationId },
+    });
     if (!existing) {
       return NextResponse.json(
         { success: false, message: "Product not found" },

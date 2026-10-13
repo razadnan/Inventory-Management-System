@@ -2,19 +2,29 @@
 
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
+import Link from "next/link";
 import Sidebar from "@/components/sidebar";
 
 type ChallanDetail = {
   challanNumber: string;
-  receiverName: string;
-  destination: string;
+  destination: string | null;
+  effectiveDestination: string;
   remarks: string | null;
   createdAt: string;
+  totalAmount: number;
+  customer: { id: string; name: string; contactPerson: string | null; phone: string | null };
   creator: { name: string };
   items: {
     id: string;
     quantity: number;
-    product: { name: string; sku: string; unitPrice: string };
+    unitPrice: string;
+    description: string | null;
+    product: { name: string; sku: string };
+  }[];
+  services: {
+    id: string;
+    description: string;
+    amount: string;
   }[];
 };
 
@@ -52,6 +62,11 @@ export default function ChallanDetailPage() {
   }
 
   const totalItems = challan.items.reduce((sum, i) => sum + i.quantity, 0);
+  const itemsTotal = challan.items.reduce(
+    (sum, i) => sum + Number(i.unitPrice) * i.quantity,
+    0
+  );
+  const servicesTotal = challan.services.reduce((sum, s) => sum + Number(s.amount), 0);
 
   return (
     <main className="min-h-screen bg-slate-100">
@@ -77,12 +92,22 @@ export default function ChallanDetailPage() {
           <div className="mt-8 rounded-xl bg-white p-6 shadow-sm">
             <div className="grid gap-4 md:grid-cols-2 text-sm">
               <div>
-                <p className="text-slate-500">Receiver</p>
-                <p className="font-medium text-slate-900">{challan.receiverName}</p>
+                <p className="text-slate-500">Customer</p>
+                <p className="font-medium text-slate-900">
+                  <Link
+                    href={`/customers/${challan.customer.id}`}
+                    className="hover:underline"
+                  >
+                    {challan.customer.name}
+                  </Link>
+                </p>
+                {challan.customer.contactPerson && (
+                  <p className="text-xs text-slate-500">{challan.customer.contactPerson}</p>
+                )}
               </div>
               <div>
                 <p className="text-slate-500">Destination</p>
-                <p className="font-medium text-slate-900">{challan.destination}</p>
+                <p className="font-medium text-slate-900">{challan.effectiveDestination}</p>
               </div>
               <div>
                 <p className="text-slate-500">Issued By</p>
@@ -96,32 +121,86 @@ export default function ChallanDetailPage() {
               )}
             </div>
 
-            <table className="mt-8 w-full text-left text-sm">
-              <thead className="border-b border-slate-200 text-slate-500">
-                <tr>
-                  <th className="py-3 font-medium">Product</th>
-                  <th className="py-3 font-medium">SKU</th>
-                  <th className="py-3 font-medium">Qty</th>
-                  <th className="py-3 font-medium">Unit Price</th>
-                </tr>
-              </thead>
-              <tbody>
-                {challan.items.map((item) => (
-                  <tr key={item.id} className="border-b border-slate-100">
-                    <td className="py-3 text-slate-900">{item.product.name}</td>
-                    <td className="py-3 text-slate-600">{item.product.sku}</td>
-                    <td className="py-3 text-slate-600">{item.quantity}</td>
-                    <td className="py-3 text-slate-600">
-                      ₹{Number(item.product.unitPrice).toFixed(2)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            {challan.items.length > 0 && (
+              <div className="mt-8">
+                <h2 className="text-sm font-semibold text-slate-900">Products</h2>
+                <table className="mt-3 w-full text-left text-sm">
+                  <thead className="border-b border-slate-200 text-slate-500">
+                    <tr>
+                      <th className="py-3 font-medium">Product</th>
+                      <th className="py-3 font-medium">SKU</th>
+                      <th className="py-3 font-medium">Qty</th>
+                      <th className="py-3 font-medium">Price</th>
+                      <th className="py-3 font-medium">Amount</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {challan.items.map((item) => (
+                      <tr key={item.id} className="border-b border-slate-100">
+                        <td className="py-3 text-slate-900">
+                          {item.product.name}
+                          {item.description && (
+                            <div className="mt-0.5 text-xs text-slate-400">{item.description}</div>
+                          )}
+                        </td>
+                        <td className="py-3 text-slate-600">{item.product.sku}</td>
+                        <td className="py-3 text-slate-600">{item.quantity}</td>
+                        <td className="py-3 text-slate-600">
+                          ₹{Number(item.unitPrice).toFixed(2)}
+                        </td>
+                        <td className="py-3 text-slate-600">
+                          ₹{(Number(item.unitPrice) * item.quantity).toFixed(2)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <div className="mt-2 flex justify-between text-sm">
+                  <span className="text-slate-500">Total Items: {totalItems}</span>
+                  <span className="font-medium text-slate-900">
+                    Subtotal: ₹{itemsTotal.toFixed(2)}
+                  </span>
+                </div>
+              </div>
+            )}
 
-            <p className="mt-4 text-right text-sm font-semibold text-slate-900">
-              Total Items: {totalItems}
-            </p>
+            {challan.services.length > 0 && (
+              <div className="mt-8">
+                <h2 className="text-sm font-semibold text-slate-900">Services / Charges</h2>
+                <table className="mt-3 w-full text-left text-sm">
+                  <thead className="border-b border-slate-200 text-slate-500">
+                    <tr>
+                      <th className="py-3 font-medium">Description</th>
+                      <th className="py-3 font-medium">Amount</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {challan.services.map((service) => (
+                      <tr key={service.id} className="border-b border-slate-100">
+                        <td className="py-3 text-slate-900">{service.description}</td>
+                        <td className="py-3 text-slate-600">
+                          ₹{Number(service.amount).toFixed(2)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <div className="mt-2 flex justify-end text-sm">
+                  <span className="font-medium text-slate-900">
+                    Subtotal: ₹{servicesTotal.toFixed(2)}
+                  </span>
+                </div>
+              </div>
+            )}
+
+            <div className="mt-6 flex justify-between border-t border-slate-200 pt-4">
+              <p className="text-sm font-semibold text-slate-900">
+                {challan.items.length > 0 && `Total Items: ${totalItems}`}
+              </p>
+              <p className="text-lg font-semibold text-slate-900">
+                Grand Total: ₹{challan.totalAmount.toFixed(2)}
+              </p>
+            </div>
           </div>
         </div>
       </div>

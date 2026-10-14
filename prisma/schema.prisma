@@ -28,6 +28,26 @@ enum ProductSource {
   MANUFACTURED
 }
 
+enum AccountType {
+  ASSET
+  LIABILITY
+  EQUITY
+  INCOME
+  EXPENSE
+}
+
+enum CashFlowClass {
+  OPERATING
+  INVESTING
+  FINANCING
+  CASH
+}
+
+enum JournalStatus {
+  DRAFT
+  POSTED
+}
+
 model Organization {
   id        String    @id @default(cuid())
   name      String
@@ -39,11 +59,25 @@ model Organization {
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
 
+  // Accounting settings
+  gstin                   String?
+  stateCode               String?
+  financialYearStartMonth Int       @default(4)
+  booksLockedUntil        DateTime? @db.Date
+
   users          User[]
   products       Product[]
   stockMovements StockMovement[]
   challans       Challan[]
   customers      Customer[]
+
+  financialYears     FinancialYear[]
+  accounts           Account[]
+  journalEntries     JournalEntry[]
+  journalLines       JournalLine[]
+  documentSequences  DocumentSequence[]
+  auditLogs          AuditLog[]
+  idempotencyRecords IdempotencyRecord[]
 
   @@map("organizations")
 }
@@ -59,9 +93,12 @@ model User {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  organization   Organization    @relation(fields: [organizationId], references: [id])
-  stockMovements StockMovement[]
-  challans       Challan[]
+  organization    Organization    @relation(fields: [organizationId], references: [id])
+  stockMovements  StockMovement[]
+  challans        Challan[]
+  journalsCreated JournalEntry[]  @relation("JournalCreatedBy")
+  journalsPosted  JournalEntry[]  @relation("JournalPostedBy")
+  auditLogs       AuditLog[]
 
   @@unique([organizationId, email])
   @@index([organizationId])
@@ -187,4 +224,147 @@ model ChallanService {
 
   @@index([challanId])
   @@map("challan_services")
+}
+
+// ---------------------------------------------------------------------------
+// Accounting foundation. Every table carries organizationId (the tenant).
+// ---------------------------------------------------------------------------
+
+model FinancialYear {
+  id             String   @id @default(cuid())
+  organizationId String
+  label          String
+  startDate      DateTime @db.Date
+  endDate        DateTime @db.Date
+  isClosed       Boolean  @default(false)
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  @@unique([organizationId, label])
+  @@map("financial_years")
+}
+
+model Account {
+  id             String         @id @default(cuid())
+  organizationId String
+  code           String
+  name           String
+  type           AccountType
+  parentId       String?
+  isGroup        Boolean        @default(false)
+  isSystem       Boolean        @default(false)
+  cashFlowClass  CashFlowClass?
+  isActive       Boolean        @default(true)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  organization Organization  @relation(fields: [organizationId], references: [id])
+  parent       Account?      @relation("AccountTree", fields: [parentId], references: [id])
+  children     Account[]     @relation("AccountTree")
+  journalLines JournalLine[]
+
+  @@unique([organizationId, code])
+  @@index([organizationId, type])
+  @@map("accounts")
+}
+
+model JournalEntry {
+  id             String        @id @default(cuid())
+  organizationId String
+  entryNumber    String?
+  entryDate      DateTime      @db.Date
+  narration      String?
+  status         JournalStatus @default(DRAFT)
+  sourceType     String?
+  sourceId       String?
+  reversalOfId   String?       @unique
+  createdById    String
+  postedById     String?
+  postedAt       DateTime?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  organization Organization  @relation(fields: [organizationId], references: [id])
+  createdBy    User          @relation("JournalCreatedBy", fields: [createdById], references: [id])
+  postedBy     User?         @relation("JournalPostedBy", fields: [postedById], references: [id])
+  reversalOf   JournalEntry? @relation("JournalReversal", fields: [reversalOfId], references: [id])
+  reversedBy   JournalEntry? @relation("JournalReversal")
+  lines        JournalLine[]
+
+  @@unique([organizationId, entryNumber])
+  @@index([organizationId, entryDate])
+  @@index([organizationId, status])
+  @@index([sourceType, sourceId])
+  @@map("journal_entries")
+}
+
+model JournalLine {
+  id             String   @id @default(cuid())
+  organizationId String
+  journalEntryId String
+  accountId      String
+  lineNo         Int
+  debit          Decimal  @default(0) @db.Decimal(18, 2)
+  credit         Decimal  @default(0) @db.Decimal(18, 2)
+  description    String?
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  journalEntry JournalEntry @relation(fields: [journalEntryId], references: [id], onDelete: Cascade)
+  account      Account      @relation(fields: [accountId], references: [id])
+
+  @@unique([journalEntryId, lineNo])
+  @@index([organizationId, accountId])
+  @@map("journal_lines")
+}
+
+model DocumentSequence {
+  id             String   @id @default(cuid())
+  organizationId String
+  seriesKey      String
+  fiscalYear     String
+  prefix         String
+  nextNumber     Int      @default(1)
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  @@unique([organizationId, seriesKey, fiscalYear])
+  @@map("document_sequences")
+}
+
+model AuditLog {
+  id             String   @id @default(cuid())
+  organizationId String?
+  userId         String?
+  action         String
+  entityType     String
+  entityId       String?
+  before         Json?
+  after          Json?
+  createdAt      DateTime @default(now())
+
+  organization Organization? @relation(fields: [organizationId], references: [id])
+  user         User?         @relation(fields: [userId], references: [id])
+
+  @@index([organizationId, createdAt])
+  @@index([entityType, entityId])
+  @@map("audit_logs")
+}
+
+model IdempotencyRecord {
+  id             String   @id @default(cuid())
+  organizationId String
+  key            String
+  endpoint       String
+  requestHash    String?
+  responseStatus Int?
+  responseBody   Json?
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  @@unique([organizationId, key, endpoint])
+  @@map("idempotency_records")
 }

@@ -3,6 +3,7 @@ import bcrypt from "bcryptjs";
 import { prisma } from "../lib/prisma";
 
 const email = (process.env.ADMIN_EMAIL ?? "admin@inventory.local").trim().toLowerCase();
+const organizationName = (process.env.ORG_NAME ?? "My Organization").trim();
 const usingDefaultPassword = !process.env.ADMIN_PASSWORD;
 const password = process.env.ADMIN_PASSWORD ?? "Admin@123";
 
@@ -13,13 +14,42 @@ async function main() {
 
   const passwordHash = await bcrypt.hash(password, 12);
 
-  const user = await prisma.user.upsert({
+  // Same rule as the app: a user belongs to exactly one organization.
+  const existing = await prisma.user.findFirst({
     where: { email },
-    update: { passwordHash, role: "ADMIN", name: "Administrator" },
-    create: { name: "Administrator", email, passwordHash, role: "ADMIN" },
+    include: { organization: true },
   });
 
-  console.log(`Admin ready: ${user.email}`);
+  if (existing) {
+    await prisma.user.update({
+      where: { id: existing.id },
+      data: { passwordHash, role: "ADMIN", status: "ACTIVE" },
+    });
+
+    console.log(`Updated admin ${email} in organization "${existing.organization.name}".`);
+  } else {
+    const created = await prisma.$transaction(async (tx) => {
+      const organization = await tx.organization.create({
+        data: { name: organizationName },
+      });
+
+      const user = await tx.user.create({
+        data: {
+          organizationId: organization.id,
+          name: "Administrator",
+          email,
+          passwordHash,
+          role: "ADMIN",
+        },
+      });
+
+      return { organization, user };
+    });
+
+    console.log(
+      `Created organization "${created.organization.name}" with admin ${created.user.email}.`
+    );
+  }
 
   if (usingDefaultPassword) {
     console.log("Used the default development password. Set ADMIN_PASSWORD before running this on production.");
